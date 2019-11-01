@@ -2,8 +2,8 @@
 ** Created by Aleksey Volkov on 23/11/2018.
 ***/
 
-#ifndef SOILSENSOR_CUSTOM_BOARD_H
-#define SOILSENSOR_CUSTOM_BOARD_H
+#ifndef PHSENSOR_CUSTOM_BOARD_H
+#define PHSENSOR_CUSTOM_BOARD_H
 
 #include "nrf_gpio.h"
 
@@ -15,8 +15,39 @@
 /* White LED */
 #define               LED_W         NRF_GPIO_PIN_MAP(0,25)
 
+/* Nordic BSP Lib support */
+#define LEDS_NUMBER    4
+
+#define LED_1         LED_R
+#define LED_2         LED_G
+#define LED_3         LED_B
+#define LED_4         LED_W
+
+#define LEDS_ACTIVE_STATE 0
+
+#define LEDS_LIST { LED_1, LED_2, LED_3, LED_4 }
+
+#define LEDS_INV_MASK  LEDS_MASK
+
+#define BSP_LED_0      LED_1
+#define BSP_LED_1      LED_2
+#define BSP_LED_2      LED_3
+#define BSP_LED_3      LED_4
+
 /* Button */
 #define               BTN_PIN       NRF_GPIO_PIN_MAP(0,31)
+
+/* Nordic BSP Buttons support */
+#define BUTTONS_NUMBER 1
+
+#define BUTTON_1       NRF_GPIO_PIN_MAP(1,31)
+#define BUTTON_PULL    NRF_GPIO_PIN_PULLUP
+
+#define BUTTONS_ACTIVE_STATE 0
+
+#define BUTTONS_LIST { BUTTON_1 }
+
+#define BSP_BUTTON_0   BUTTON_1
 
 /* NTC Thermistor 10K */
 #define               NTC_POWER_PIN NRF_GPIO_PIN_MAP(0,2)
@@ -30,4 +61,4 @@
 #define               TX_PIN        NRF_GPIO_PIN_MAP(0,14)
 #define               RX_PIN        NRF_GPIO_PIN_MAP(0,13)
 
-#endif //SOILSENSOR_CUSTOM_BOARD_H
+#endif //PHSENSOR_CUSTOM_BOARD_H

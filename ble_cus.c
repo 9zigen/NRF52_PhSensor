@@ -56,7 +56,7 @@ static void on_write(ble_cus_t * p_cus, ble_evt_t const * p_ble_evt)
   // Status Value Characteristic Written to.
   if (p_evt_write->handle == p_cus->status_handles.value_handle)
   {
-    // ToDO:
+    // ToDO: One/Two Point Calibration
     if(p_evt_write->data != NULL)
     {
       NRF_LOG_INFO("New Value received");
@@ -75,7 +75,6 @@ static void on_write(ble_cus_t * p_cus, ble_evt_t const * p_ble_evt)
         evt.evt_type = BLE_CUS_EVT_CALIBRATE_PH_HI;
         NRF_LOG_INFO("CUS EVT: BLE_CUS_EVT_CALIBRATE_PH_HI\r\n");
         do_ph_calibration(PH_HI_CALIBRATION);
-
       }
       p_cus->evt_handler(p_cus, &evt);
     }

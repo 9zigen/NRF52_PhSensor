@@ -5,21 +5,58 @@
 #include "nrfx_gpiote.h"
 #include "nrf_log.h"
 #include "app_timer.h"
-
+#include "app_button.h"
 #include "custom_board.h"
 #include "button.h"
 
-#define BTN_DEBOUNCE_TIME 200 /* milliseconds */
+#define BTN_DEBOUNCE_TIME             APP_TIMER_TICKS(1000)  /* milliseconds */
+
+static void debounce_timer_handler(void *p_context);
+static void buttons_debounce_start();
 
 APP_TIMER_DEF(m_debounce_timer_id);
 
-void debounce_timer_handler(void *p_context) {
-  UNUSED_PARAMETER(p_context);
+/* long press 2 sec */
+button_t button = {IDLE, IDLE, 10, NULL};
 
-  if (!nrf_gpio_pin_read(BTN_PIN))
+static void debounce_timer_handler(void *p_context) {
+  UNUSED_PARAMETER(p_context);
+  if (nrf_gpio_pin_read(BTN_PIN))
   {
-    NRF_LOG_INFO("BTN Pressed > %s", BTN_DEBOUNCE_TIME);
+    /* button was released after short press */
+    if(button.current_state == PRESSED || button.current_state == LONGPRESSED)
+    {
+      NRF_LOG_INFO("BTN Released");
+      button.current_state = RELEASED;
+
+      /* Notify user function RELEASED State */
+      if (button.action_handler != NULL)
+      {
+        button.action_handler(button.current_state);
+      }
+    }
+
+    /* button was released after short press */
   }
+  else if (!nrf_gpio_pin_read(BTN_PIN))
+  {
+    /* button still pressed */
+    if(button.current_state != LONGPRESSED)
+    {
+      NRF_LOG_INFO("BTN Pressed > %s", BTN_DEBOUNCE_TIME);
+      button.current_state = LONGPRESSED;
+
+      /* Notify user function LONGPRESSED State */
+      if (button.action_handler != NULL)
+      {
+        button.action_handler(button.current_state);
+      }
+
+    }
+    buttons_debounce_start();
+  }
+
+//  nrfx_gpiote_in_event_enable(BTN_PIN, true);
 }
 
 static void buttons_debounce_start()
@@ -29,15 +66,18 @@ static void buttons_debounce_start()
   APP_ERROR_CHECK(err_code);
 }
 
+/* GPIOTE handler */
 static void in_pin_handler(nrfx_gpiote_pin_t pin, nrf_gpiote_polarity_t action)
 {
   if (pin == BTN_PIN)
   {
     /* temporary disable GPIOTE pin sense */
-    nrfx_gpiote_in_event_disable(BTN_PIN);
+//    nrfx_gpiote_in_event_disable(BTN_PIN);
 
     bool state = !nrf_gpio_pin_read(BTN_PIN);
     NRF_LOG_INFO("BTN Press event: %d", state);
+
+    button.current_state = PRESSED;
 
     /* Start debounce timer */
     buttons_debounce_start();
@@ -49,7 +89,7 @@ void button_init()
 {
   ret_code_t err_code;
 
-  /* Create debounce timer */
+  /* Create debounce/long press timer */
   err_code = app_timer_create(&m_debounce_timer_id, APP_TIMER_MODE_SINGLE_SHOT, debounce_timer_handler);
   APP_ERROR_CHECK(err_code);
 
@@ -68,4 +108,11 @@ void button_init()
   APP_ERROR_CHECK(err_code);
 
   nrfx_gpiote_in_event_enable(BTN_PIN, true);
+
+}
+
+
+void set_button_action_handler(button_action_t action_handler)
+{
+  button.action_handler = action_handler;
 }

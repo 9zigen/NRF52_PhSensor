@@ -26,7 +26,7 @@
 #define ADC_RES_12BIT         4095
 #define ADC_REF_VOLTAGE_MV    600
 #define KELVIN                273.15
-#define MOSFET_DROP_MV        0          /* short bnc read 80mv */
+#define MOSFET_DROP_MV        0          /* short bnc read 0mv */
 
 /* Macro to convert the result of ADC conversion in millivolts. */
 #define ADC_RESULT_IN_MILLI_VOLTS(ADC_VALUE)\
@@ -66,6 +66,9 @@ static void saadc_sampling_event_init(void)
   uint32_t ticks_saadc = nrfx_timer_us_to_ticks(&m_timer, 200);
   nrfx_timer_extended_compare(&m_timer, NRF_TIMER_CC_CHANNEL0, ticks_saadc, NRF_TIMER_SHORT_COMPARE0_CLEAR_MASK, true);
 
+  /* Start Timer */
+  nrfx_timer_enable(&m_timer);
+
   if (!nrfx_gpiote_is_init())
   {
     err_code = nrfx_gpiote_init();
@@ -82,12 +85,6 @@ static void saadc_sampling_event_init(void)
 
   err_code = nrfx_ppi_channel_assign(m_ppi_channel, timer_compare_event_ch0_addr, saadc_sample_task_addr);
   APP_ERROR_CHECK(err_code);
-
-  /* Enable PPI channel */
-  err_code = nrfx_ppi_channel_enable(m_ppi_channel);
-  APP_ERROR_CHECK(err_code);
-
-  nrfx_timer_enable(&m_timer);
 }
 
 
@@ -109,10 +106,25 @@ static void ph_sensor_deinit(void)
 
 }
 
-/* SAADC Scan complete */
+/* SAADC Calibration/Scan complete */
 static void ph_saadc_callback(nrfx_saadc_evt_t const * p_event)
 {
-  if (p_event->type == NRFX_SAADC_EVT_DONE)
+  if (p_event->type == NRFX_SAADC_EVT_CALIBRATEDONE)
+  {
+    ret_code_t err_code;
+    err_code = nrfx_saadc_buffer_convert(m_buffer_pool[0], SAMPLES_IN_BUFFER);
+    APP_ERROR_CHECK(err_code);
+
+    err_code = nrfx_saadc_buffer_convert(m_buffer_pool[1], SAMPLES_IN_BUFFER);
+    APP_ERROR_CHECK(err_code);
+
+    /* Enable PPI channel */
+    err_code = nrfx_ppi_channel_enable(m_ppi_channel);
+    APP_ERROR_CHECK(err_code);
+
+    NRF_LOG_INFO("PH SAADC calibration complete!");
+
+  } else if (p_event->type == NRFX_SAADC_EVT_DONE)
   {
     ret_code_t err_code;
 
@@ -122,7 +134,7 @@ static void ph_saadc_callback(nrfx_saadc_evt_t const * p_event)
     int i;
     NRF_LOG_INFO("PH ADC event:");
 
-    for (i = 0; i < SAMPLES_IN_BUFFER; i++)
+    for (i = 0; i < p_event->data.done.size; i++)
     {
       NRF_LOG_INFO("PH SAADC RAW   %d", p_event->data.done.p_buffer[i]);
     }
@@ -173,12 +185,13 @@ static void ph_saadc_init(void)
   nrfx_saadc_config_t saadc_config;
   saadc_config.resolution = NRF_SAADC_RESOLUTION_12BIT;        //Set SAADC resolution to 12-bit. This will make the SAADC output values from 0 (when input voltage is 0V) to 2^12=4096 (when input voltage is 3.6V for channel gain setting of 1/6).
   saadc_config.interrupt_priority = APP_IRQ_PRIORITY_LOW;
-  saadc_config.oversample = NRF_SAADC_OVERSAMPLE_64X;
+  saadc_config.oversample = NRF_SAADC_OVERSAMPLE_8X;
 
   /* PH */
   nrf_saadc_channel_config_t channel_0 =
       NRFX_SAADC_DEFAULT_CHANNEL_CONFIG_SE(NRF_SAADC_INPUT_AIN2);
   channel_0.gain = NRF_SAADC_GAIN1_4;
+//  channel_0.burst = NRF_SAADC_BURST_ENABLED;
 
   err_code = nrfx_saadc_init(&saadc_config, ph_saadc_callback);
   APP_ERROR_CHECK(err_code);
@@ -186,11 +199,8 @@ static void ph_saadc_init(void)
   err_code = nrfx_saadc_channel_init(0, &channel_0);
   APP_ERROR_CHECK(err_code);
 
-  err_code = nrfx_saadc_buffer_convert(m_buffer_pool[0], SAMPLES_IN_BUFFER);
-  APP_ERROR_CHECK(err_code);
-
-  err_code = nrfx_saadc_buffer_convert(m_buffer_pool[1], SAMPLES_IN_BUFFER);
-  APP_ERROR_CHECK(err_code);
+  /* Start calibration */
+  nrfx_saadc_calibrate_offset();
 }
 
 /* power on ph sensor */
@@ -199,6 +209,7 @@ void power_ph_sensor(bool on)
   if (on)
   {
     nrf_gpio_cfg_output(PH_ON_PIN);
+    /* set pin LOW to power OP Amplifier thought p-mosfet */
     nrf_gpio_pin_clear(PH_ON_PIN);
   } else {
     nrf_gpio_cfg_input(PH_ON_PIN, NRF_GPIO_PIN_NOPULL);
@@ -226,7 +237,7 @@ double get_ph_value()
   /* ideal ph probe slope */
   double slope = 59.18; /* mv/ph */
 
-  /* true ph probe slope */
+  /* real ph probe slope */
   if (ph_milli_volts > 0)  /* PH < 7.0 */
   {
     if (calibration_neutral_mv && calibration_low_mv) {
@@ -239,7 +250,10 @@ double get_ph_value()
     }
   }
 
-  NRF_LOG_INFO("Slope " NRF_LOG_FLOAT_MARKER, NRF_LOG_FLOAT(slope));
+  if (calibration_neutral_mv || calibration_high_mv || calibration_low_mv)
+  {
+    NRF_LOG_INFO("Slope " NRF_LOG_FLOAT_MARKER, NRF_LOG_FLOAT(slope));
+  }
 
   /* temperature corrected slope */
   double corrected_slope = slope * ((current_temperature + KELVIN) / (25 + KELVIN));
@@ -276,4 +290,7 @@ void do_ph_calibration(ph_calibration_t type)
       need_hi_calibration  = true;
       break;
   }
+
+  /* temporary disable led */
+  led_indication_set(LED_INDICATE_NONE);
 }

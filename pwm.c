@@ -105,35 +105,45 @@ void led_indication_set(led_indication_t mode)
   APP_ERROR_CHECK(err_code);
 
   switch (mode) {
+    case LED_INDICATE_NONE:
+      speed = 5;
+      led_indication_set_color(0, 0, 0, 0);
+      break;
+
     case LED_INDICATE_ADVERTISING:
       speed = 5;
-      led_indication_set_color(0, 0, 0, 0x8000);
+      led_indication_set_color(0, 0, TOP / 10, 0);
       break;
 
     case LED_INDICATE_ADVERTISING_SLOW:
       speed = 20;
-      led_indication_set_color(0, 0, 0, 0x8000);
+      led_indication_set_color(0, 0, TOP / 10, 0);
       break;
 
     case LED_INDICATE_CONNECTED:
-      speed = 4;
-      led_indication_set_color(0, 0, 0, 0x8000);
+      speed = 20;
+      led_indication_set_color(0, TOP / 10, 0, 0);
       break;
 
     case LED_INDICATE_IDLE:
       speed = 60;
-      led_indication_set_color(0, 0, 0, 0x8000);
+      led_indication_set_color(0, 0, 0x8000, 0);
       break;
 
     case LED_INDICATE_SUCCESS:
       speed = 2;
-      led_indication_set_color(0, 0x8000, 0, 0);
+      led_indication_set_color(0, TOP / 10, 0, 0);
       duration = 4; /* timer interval = LED_TIMER_INTERVAL * speed * duration */
 
       break;
     case LED_INDICATE_ERROR:
       speed = 4;
-      led_indication_set_color(0x8000, 0, 0, 0);
+      led_indication_set_color(TOP / 10, 0, 0, 0);
+      break;
+
+    case LED_INDICATE_MAX:
+      speed = 4;
+      led_indication_set_color(TOP / 10, TOP / 10, TOP / 10, TOP / 10);
       break;
   }
 

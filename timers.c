@@ -9,7 +9,7 @@
 #include "sensors.h"
 
 #define SENSOR_READ_INTERVAL_FAST           APP_TIMER_TICKS(5000)             /* 1 sec */
-#define SENSOR_READ_INTERVAL                APP_TIMER_TICKS(30*1000)       /* 30 min */
+#define SENSOR_READ_INTERVAL                APP_TIMER_TICKS(30*1000)          /* 30 min */
 #define CH_UPDATE_INTERVAL                  APP_TIMER_TICKS(10*1000)          /* 10 sec */
 #define ADV_UPDATE_INTERVAL                 APP_TIMER_TICKS(60*1000)          /* 1 min */
 

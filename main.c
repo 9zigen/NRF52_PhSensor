@@ -69,6 +69,7 @@
 #include "sensors.h"
 #include "pwm.h"
 #include <boards.h>
+#include <ble_dfu.h>
 #include "ph_sensor.h"
 #include "bat_sensor.h"
 
@@ -135,12 +136,61 @@ void power_management_init(void)
   APP_ERROR_CHECK(err_code);
 }
 
+/* power management */
+//static bool app_shutdown_handler(nrf_pwr_mgmt_evt_t event)
+//{
+//  switch (event)
+//  {
+//    case NRF_PWR_MGMT_EVT_PREPARE_DFU:
+//      NRF_LOG_INFO("Power management wants to reset to DFU mode\r\n");
+//      // Change this code to tailor to your reset strategy.
+//      // Returning false here means that the device is not ready to jump to DFU mode yet.
+//      //
+//      // Here is an example using a variable to delay resetting the device:
+////      if (!m_ready_for_reset)
+////      {
+////        return false;
+////      }
+//      break;
+//
+//    default:
+//      // Implement any of the other events available from the power management module:
+//      //      -NRF_PWR_MGMT_EVT_PREPARE_SYSOFF
+//      //      -NRF_PWR_MGMT_EVT_PREPARE_WAKEUP
+//      //      -NRF_PWR_MGMT_EVT_PREPARE_RESET
+//      return true;
+//  }
+//  NRF_LOG_INFO("Power management allowed to reset to DFU mode\r\n");
+//  return true;
+//}
+//
+//NRF_PWR_MGMT_HANDLER_REGISTER(app_shutdown_handler, 0);
+
+static void button_action_handler(button_state_t state)
+{
+  switch (state)
+  {
+    case LONGPRESSED:
+      NRF_LOG_INFO("BTN LONGPRESSED, Delete bounds");
+      break;
+
+    default:
+      break;
+  }
+}
+
 int main(void)
 {
   APP_ERROR_CHECK(NRF_LOG_INIT(NULL));
   NRF_LOG_DEFAULT_BACKENDS_INIT();
 
   log_init();
+
+  // Initialize the async SVCI interface to bootloader before any interrupts are enabled.
+  ret_code_t err_code;
+  err_code = ble_dfu_buttonless_async_svci_init();
+  APP_ERROR_CHECK(err_code);
+
   timers_init();
   init_clock();
   init_led_pwm();
@@ -154,6 +204,7 @@ int main(void)
 
   /* Init Button */
   button_init();
+  set_button_action_handler(button_action_handler);
 
   /* Start read sensor timer */
   read_sensor_timer_start(true);

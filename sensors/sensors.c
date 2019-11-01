@@ -102,11 +102,9 @@ void update_characteristics_timer_handler(void *p_context) {
 }
 
 /* Sensors Order
- * 0 - battery SAADC
- * 1 - soil SAADC
- * 2 - salinity SAADC
- * 3 - light i2c
- * 4 - temp + hum i2c
+ * 0 - Battery SAADC
+ * 1 - NTC SAADC
+ * 2 - PH SAADC
  * */
 void read_sensors() {
 
@@ -122,7 +120,7 @@ void read_sensors() {
     read_battery_voltage();
     sensor_index++;
 
-    /* power on OP amplifier, voltage divider */
+    /* power on: OP amplifier, voltage divider, ph probe */
     power_ph_sensor(true);
 
   } else if (sensor_index == 1) {

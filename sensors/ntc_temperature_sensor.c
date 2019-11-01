@@ -60,7 +60,7 @@ static void saadc_sampling_event_init(void)
   APP_ERROR_CHECK(err_code);
 
   /* setup m_timer for compare event every 1000us - 1 khz */
-  uint32_t ticks = nrfx_timer_us_to_ticks(&m_timer, 120);
+  uint32_t ticks = nrfx_timer_us_to_ticks(&m_timer, 1000);
   nrfx_timer_extended_compare(&m_timer,
                               NRF_TIMER_CC_CHANNEL0,
                               ticks,
@@ -137,13 +137,14 @@ static void ntc_saadc_init() {
   /* Configure SAADC */
   nrfx_saadc_config_t saadc_config;
 //  saadc_config.low_power_mode = true;
-  saadc_config.resolution = NRF_SAADC_RESOLUTION_12BIT; //Set SAADC resolution to 12-bit. This will make the SAADC output values from 0 (when input voltage is 0V) to 2^12=2048 (when input voltage is 3.6V for channel gain setting of 1/6).
-  saadc_config.oversample = NRF_SAADC_OVERSAMPLE_32X;  //Set oversample to 128x. This will make the SAADC output a single averaged value when the SAMPLE task is triggered 128 times.
+  saadc_config.resolution = NRF_SAADC_RESOLUTION_12BIT;       //Set SAADC resolution to 12-bit. This will make the SAADC output values from 0 (when input voltage is 0V) to 2^12=2048 (when input voltage is 3.6V for channel gain setting of 1/6).
+  saadc_config.oversample = NRF_SAADC_OVERSAMPLE_8X;          //Set oversample to 32x. This will make the SAADC output a single averaged value when the SAMPLE task is triggered 128 times.
   saadc_config.interrupt_priority = APP_IRQ_PRIORITY_LOW;
 
   err_code = nrfx_saadc_init(&saadc_config, saadc_callback);
   APP_ERROR_CHECK(err_code);
 
+  channel_config.burst = NRF_SAADC_BURST_ENABLED;
   err_code = nrfx_saadc_channel_init(0, &channel_config);
   APP_ERROR_CHECK(err_code);
 
@@ -152,8 +153,6 @@ static void ntc_saadc_init() {
 
   err_code = nrfx_saadc_buffer_convert(m_buffer_pool[1], SAMPLES_IN_BUFFER);
   APP_ERROR_CHECK(err_code);
-
-//  nrfx_saadc_calibrate_offset()
 
 }
 
@@ -198,7 +197,7 @@ double get_ntc_temperature()
 
   double temperature_celsius = temperature_kelvin - 273.15;  // convert kelvin to celsius
 
-  /* possible NTC disconnected, get current temperature from MCU */
+  /* If NTC disconnected, get current temperature from MCU */
   if (temperature_celsius < 0)
   {
     static int32_t temperature;

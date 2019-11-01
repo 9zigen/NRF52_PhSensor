@@ -32,7 +32,7 @@
         ((((ADC_VALUE) * ADC_REF_VOLTAGE_MV) / ADC_RES_12BIT) * ADC_COMPENSATION)
 
 #define CALIBRATION_INTERVAL  5
-#define SAMPLES_IN_BUFFER     1
+#define SAMPLES_IN_BUFFER     2
 #define ADC_COMPENSATION      6
 #define ADC_RES_12BIT         4095
 #define ADC_REF_VOLTAGE_MV    600
@@ -153,7 +153,7 @@ static void saadc_callback(nrfx_saadc_evt_t const * p_event)
     err_code = nrfx_saadc_buffer_convert(p_event->data.done.p_buffer, SAMPLES_IN_BUFFER);
     APP_ERROR_CHECK(err_code);
 
-    bat_milli_volts = ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[0]) * BAT_RESISTOR_DIVIDER;
+    bat_milli_volts = ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[1]);
     bat_capacity = battery_level(bat_milli_volts);
 
     NRF_LOG_INFO("BAT  mv: %d", bat_milli_volts);
@@ -177,7 +177,7 @@ static void bat_saadc_init() {
   nrfx_saadc_config_t saadc_config;
 //  saadc_config.low_power_mode = true;
   saadc_config.resolution = NRF_SAADC_RESOLUTION_12BIT; //Set SAADC resolution to 12-bit. This will make the SAADC output values from 0 (when input voltage is 0V) to 2^12=2048 (when input voltage is 3.6V for channel gain setting of 1/6).
-  saadc_config.oversample = NRF_SAADC_OVERSAMPLE_32X;  //Set oversample to 128x. This will make the SAADC output a single averaged value when the SAMPLE task is triggered 128 times.
+  saadc_config.oversample = NRF_SAADC_OVERSAMPLE_DISABLED;  //Set oversample to 128x. This will make the SAADC output a single averaged value when the SAMPLE task is triggered 128 times.
   saadc_config.interrupt_priority = APP_IRQ_PRIORITY_LOW;
 
   err_code = nrfx_saadc_init(&saadc_config, saadc_callback);
@@ -198,9 +198,6 @@ static void bat_saadc_init() {
 
 void bat_sensor_init(void)
 {
-//  nrf_gpio_cfg_output(BAT_ON);
-//  nrf_gpio_pin_set(BAT_ON);
-
   bat_saadc_init();
   saadc_sampling_event_init();
   saadc_sampling_event_enable();
@@ -211,10 +208,6 @@ void bat_sensor_deinit(void)
   saadc_sampling_event_disable();
   NVIC_ClearPendingIRQ(SAADC_IRQn);
   nrfx_saadc_uninit();
-
-//  nrf_gpio_cfg_input(BAT_ON, NRF_GPIO_PIN_NOPULL);
-//  nrf_gpio_pin_clear(BAT_ON);
-
 }
 
 /* get Battery voltage */

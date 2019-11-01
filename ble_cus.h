@@ -32,13 +32,13 @@ NRF_SDH_BLE_OBSERVER(_name ## _obs,                                             
 #define SALINITY_CHAR_UUID                0x1404
 #define SOIL_CHAR_UUID                    0x1405
 #define LIGHT_CHAR_UUID                   0x1406
-#define PH_CHAR_UUID                      0x1403
+#define PH_CHAR_UUID                      0x1407
 																					
 /* Custom Service event type. */
 typedef enum
 {
-  BLE_CUS_EVT_TEMPERATURE_NOTIFICATION_ENABLED,                  /**< Tempereture value notification enabled event. */
-  BLE_CUS_EVT_TEMPERATURE_NOTIFICATION_DISABLED,                 /**< Tempereture value notification disabled event. */
+  BLE_CUS_EVT_TEMPERATURE_NOTIFICATION_ENABLED,            /**< Temperature value notification enabled event. */
+  BLE_CUS_EVT_TEMPERATURE_NOTIFICATION_DISABLED,           /**< Temperature value notification disabled event. */
   BLE_CUS_EVT_PH_NOTIFICATION_ENABLED,                     /**< Humidity value notification enabled event. */
   BLE_CUS_EVT_PH_NOTIFICATION_DISABLED,                    /**< Humidity value notification disabled event. */
   BLE_CUS_EVT_DISCONNECTED,
