@@ -102,7 +102,7 @@ static void saadc_sampling_event_init(void)
   APP_ERROR_CHECK(err_code);
 
   /* setup m_timer for compare event every 1000us - 1 khz */
-  uint32_t ticks = nrfx_timer_us_to_ticks(&m_timer, 100);
+  uint32_t ticks = nrfx_timer_us_to_ticks(&m_timer, 5000);
   nrfx_timer_extended_compare(&m_timer,
                               NRF_TIMER_CC_CHANNEL0,
                               ticks,
@@ -153,6 +153,11 @@ static void saadc_callback(nrfx_saadc_evt_t const * p_event)
     err_code = nrfx_saadc_buffer_convert(p_event->data.done.p_buffer, SAMPLES_IN_BUFFER);
     APP_ERROR_CHECK(err_code);
 
+    for (uint8_t i = 0; i < p_event->data.done.size; i++)
+    {
+      NRF_LOG_INFO("BAT SAADC RAW   %d", p_event->data.done.p_buffer[i]);
+    }
+
     bat_milli_volts = ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[1]);
     bat_capacity = battery_level(bat_milli_volts);
 
@@ -170,18 +175,20 @@ static void bat_saadc_init() {
   nrfx_saadc_uninit();
 
   ret_code_t err_code;
-  nrf_saadc_channel_config_t channel_config =
-      NRFX_SAADC_DEFAULT_CHANNEL_CONFIG_SE(NRF_SAADC_INPUT_VDD);
 
   /* Configure SAADC */
   nrfx_saadc_config_t saadc_config;
 //  saadc_config.low_power_mode = true;
   saadc_config.resolution = NRF_SAADC_RESOLUTION_12BIT; //Set SAADC resolution to 12-bit. This will make the SAADC output values from 0 (when input voltage is 0V) to 2^12=2048 (when input voltage is 3.6V for channel gain setting of 1/6).
-  saadc_config.oversample = NRF_SAADC_OVERSAMPLE_DISABLED;  //Set oversample to 128x. This will make the SAADC output a single averaged value when the SAMPLE task is triggered 128 times.
+  saadc_config.oversample = NRF_SAADC_OVERSAMPLE_64X;   //Set oversample to 128x. This will make the SAADC output a single averaged value when the SAMPLE task is triggered 128 times.
   saadc_config.interrupt_priority = APP_IRQ_PRIORITY_LOW;
 
   err_code = nrfx_saadc_init(&saadc_config, saadc_callback);
   APP_ERROR_CHECK(err_code);
+
+  nrf_saadc_channel_config_t channel_config =
+      NRFX_SAADC_DEFAULT_CHANNEL_CONFIG_SE(NRF_SAADC_INPUT_VDD);
+  channel_config.burst = NRF_SAADC_BURST_ENABLED;
 
   err_code = nrfx_saadc_channel_init(0, &channel_config);
   APP_ERROR_CHECK(err_code);
@@ -192,7 +199,7 @@ static void bat_saadc_init() {
   err_code = nrfx_saadc_buffer_convert(m_buffer_pool[1], SAMPLES_IN_BUFFER);
   APP_ERROR_CHECK(err_code);
 
-//  nrfx_saadc_calibrate_offset()
+  //nrfx_saadc_calibrate_offset()
 
 }
 

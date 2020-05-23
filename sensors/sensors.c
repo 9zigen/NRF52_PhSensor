@@ -5,6 +5,7 @@
 #include <libraries/timer/app_timer.h>
 #include <ble_bas.h>
 #include <ble_services.h>
+#include <pwm.h>
 #include "nrf_log.h"
 #include "nrf_log_ctrl.h"
 #include "nrf_log_default_backends.h"
@@ -65,15 +66,6 @@ void read_sensors_timer_handler(void *p_context)
 
 }
 
-void update_advertising_timer_handler(void *p_context)
-{
-  UNUSED_PARAMETER(p_context);
-  if (all_sensors_ready())
-  {
-    advertising_update();
-  }
-}
-
 /* update characteristics timer handler */
 void update_characteristics_timer_handler(void *p_context) {
   UNUSED_PARAMETER(p_context);
@@ -117,20 +109,28 @@ void read_sensors() {
   }
 
   if (sensor_index == 0) {
+    /* turn off the LED for more accurate measurement */
+    led_indication_set(LED_INDICATE_NONE);
+
     read_battery_voltage();
     sensor_index++;
-
-    /* power on: OP amplifier, voltage divider, ph probe */
-    power_ph_sensor(true);
 
   } else if (sensor_index == 1) {
     read_ntc_temperature();
     sensor_index++;
 
   } else if (sensor_index == 2) {
+    NRF_LOG_INFO("PH Probe power ON");
+
+    /* power on: OP amplifier, voltage divider, ph probe */
+    power_ph_sensor(true);
+    sensor_index++;
+  } else if (sensor_index < 10) {
+    NRF_LOG_INFO("PH Probe warming up...");
+    sensor_index++;
+  } else if (sensor_index == 10) {
     start_ph_sensor();
     sensor_index = 0;
-
   }
 }
 
