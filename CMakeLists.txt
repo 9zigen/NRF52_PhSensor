@@ -12,7 +12,7 @@ set(OBJCOPY arm-none-eabi-objcopy)
 set(OBJDUMP arm-none-eabi-objdump)
 set(SIZE arm-none-eabi-size)
 
-SET(SDK_ROOT /Users/aleksej/dev/SDK/nRF5_SDK_16.0.0)
+SET(SDK_ROOT ../../../../SDK/nRF5_SDK_16.0.0)
 
 set(CMAKE_OSX_SYSROOT "/")
 set(CMAKE_OSX_DEPLOYMENT_TARGET "")
@@ -237,6 +237,7 @@ list(APPEND USER_SOURCES
     "${SDK_ROOT}/components/ble/ble_services/ble_dfu/ble_dfu_bonded.c"
     "${SDK_ROOT}/components/ble/ble_services/ble_dfu/ble_dfu_unbonded.c"
     "main.c"
+    "storage.c"
     "bsp/custom_board.h"
     "pwm.c"
     "ble_cus.c"

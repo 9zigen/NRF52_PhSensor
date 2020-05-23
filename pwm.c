@@ -44,6 +44,32 @@ static nrf_pwm_sequence_t seq = {
     .end_delay       = 0
 };
 
+nrfx_pwm_config_t const config0 =
+    {
+        .output_pins =
+            {
+                LED_R | NRFX_PWM_PIN_INVERTED, // channel 0
+                LED_G | NRFX_PWM_PIN_INVERTED, // channel 1
+                LED_B | NRFX_PWM_PIN_INVERTED, // channel 2
+                LED_W | NRFX_PWM_PIN_INVERTED  // channel 3
+            },
+        .irq_priority = APP_IRQ_PRIORITY_LOWEST,
+        .base_clock   = NRF_PWM_CLK_250kHz,
+        .count_mode   = NRF_PWM_MODE_UP,
+        .top_value    = TOP,
+        .load_mode    = NRF_PWM_LOAD_INDIVIDUAL,
+        .step_mode    = NRF_PWM_STEP_AUTO
+    };
+
+/* disable PWM instance */
+void pwm_handler(nrfx_pwm_evt_type_t event_type)
+{
+  if (event_type == NRFX_PWM_EVT_FINISHED)
+  {
+    nrfx_pwm_uninit(&m_pwm0);
+  }
+}
+
 /* Led timer handler, restart pwm seq */
 void led_timer_handler(void *p_context)
 {
@@ -52,11 +78,14 @@ void led_timer_handler(void *p_context)
     /* duration is set */
     if (duration == 0)
     {
-      led_indication_set(prev_indicating_mode);
+      led_indication_set(LED_INDICATE_NONE);
       return;
     }
     duration--;
   }
+
+  /* init PWM */
+  APP_ERROR_CHECK(nrfx_pwm_init(&m_pwm0, &config0, pwm_handler));
 
   /* play sequence */
   (void)nrfx_pwm_simple_playback(&m_pwm0, &seq, 2, NRFX_PWM_FLAG_STOP);
@@ -64,26 +93,6 @@ void led_timer_handler(void *p_context)
 
 void init_led_pwm(void)
 {
-
-  nrfx_pwm_config_t const config0 =
-    {
-      .output_pins =
-        {
-          LED_R | NRFX_PWM_PIN_INVERTED, // channel 0
-          LED_G | NRFX_PWM_PIN_INVERTED, // channel 1
-          LED_B | NRFX_PWM_PIN_INVERTED, // channel 2
-          LED_W | NRFX_PWM_PIN_INVERTED  // channel 3
-        },
-      .irq_priority = APP_IRQ_PRIORITY_LOWEST,
-      .base_clock   = NRF_PWM_CLK_250kHz,
-      .count_mode   = NRF_PWM_MODE_UP,
-      .top_value    = TOP,
-      .load_mode    = NRF_PWM_LOAD_INDIVIDUAL,
-      .step_mode    = NRF_PWM_STEP_AUTO
-    };
-
-  APP_ERROR_CHECK(nrfx_pwm_init(&m_pwm0, &config0, NULL));
-
   ret_code_t err_code;
 
   err_code = app_timer_create(&led_timer_id, APP_TIMER_MODE_REPEATED, led_timer_handler);
@@ -104,6 +113,8 @@ void led_indication_set(led_indication_t mode)
   err_code = app_timer_stop(led_timer_id);
   APP_ERROR_CHECK(err_code);
 
+  NRF_LOG_INFO("LED mode %u", mode);
+
   switch (mode) {
     case LED_INDICATE_NONE:
       speed = 5;
@@ -111,17 +122,17 @@ void led_indication_set(led_indication_t mode)
       break;
 
     case LED_INDICATE_ADVERTISING:
-      speed = 5;
+      speed = 10;
       led_indication_set_color(0, 0, TOP / 10, 0);
       break;
 
     case LED_INDICATE_ADVERTISING_SLOW:
-      speed = 20;
+      speed = 40;
       led_indication_set_color(0, 0, TOP / 10, 0);
       break;
 
     case LED_INDICATE_CONNECTED:
-      speed = 20;
+      speed = 30;
       led_indication_set_color(0, TOP / 10, 0, 0);
       break;
 
@@ -141,6 +152,24 @@ void led_indication_set(led_indication_t mode)
       led_indication_set_color(TOP / 10, 0, 0, 0);
       break;
 
+    case LED_INDICATE_FAST_RED:
+      speed = 1;
+      duration = 4;
+      led_indication_set_color(TOP / 10, 0, 0, 0);
+      break;
+
+    case LED_INDICATE_FAST_GREEN:
+      speed = 1;
+      duration = 4;
+      led_indication_set_color(0, TOP / 10, 0, 0);
+      break;
+
+    case LED_INDICATE_FAST_BLUE:
+      speed = 1;
+      duration = 4;
+      led_indication_set_color(0, 0, TOP / 10, 0);
+      break;
+
     case LED_INDICATE_MAX:
       speed = 4;
       led_indication_set_color(TOP / 10, TOP / 10, TOP / 10, TOP / 10);
@@ -153,6 +182,11 @@ void led_indication_set(led_indication_t mode)
     err_code = app_timer_start(led_timer_id, LED_TIMER_INTERVAL * speed, NULL);
 
   APP_ERROR_CHECK(err_code);
+}
+
+led_indication_t get_led_indication_mode()
+{
+  return indicating_mode;
 }
 
 /* RGB color 0 - 32768, 16bit PWM Value */

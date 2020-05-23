@@ -72,6 +72,7 @@
 #include <ble_dfu.h>
 #include "ph_sensor.h"
 #include "bat_sensor.h"
+#include "storage.h"
 
 #define FPU_EXCEPTION_MASK               0x0000009F                      //!< FPU exception mask used to clear exceptions in FPSCR register.
 #define FPU_FPSCR_REG_STACK_OFF          0x40                            //!< Offset of FPSCR register stacked during interrupt handling in FPU part stack.
@@ -137,41 +138,66 @@ void power_management_init(void)
 }
 
 /* power management */
-//static bool app_shutdown_handler(nrf_pwr_mgmt_evt_t event)
-//{
-//  switch (event)
-//  {
-//    case NRF_PWR_MGMT_EVT_PREPARE_DFU:
-//      NRF_LOG_INFO("Power management wants to reset to DFU mode\r\n");
-//      // Change this code to tailor to your reset strategy.
-//      // Returning false here means that the device is not ready to jump to DFU mode yet.
-//      //
-//      // Here is an example using a variable to delay resetting the device:
-////      if (!m_ready_for_reset)
-////      {
-////        return false;
-////      }
-//      break;
-//
-//    default:
-//      // Implement any of the other events available from the power management module:
-//      //      -NRF_PWR_MGMT_EVT_PREPARE_SYSOFF
-//      //      -NRF_PWR_MGMT_EVT_PREPARE_WAKEUP
-//      //      -NRF_PWR_MGMT_EVT_PREPARE_RESET
-//      return true;
-//  }
-//  NRF_LOG_INFO("Power management allowed to reset to DFU mode\r\n");
-//  return true;
-//}
-//
-//NRF_PWR_MGMT_HANDLER_REGISTER(app_shutdown_handler, 0);
+static bool app_shutdown_handler(nrf_pwr_mgmt_evt_t event)
+{
+  switch (event)
+  {
+    case NRF_PWR_MGMT_EVT_PREPARE_DFU:
+      NRF_LOG_INFO("Power management wants to reset to DFU mode\r\n");
+      // Change this code to tailor to your reset strategy.
+      // Returning false here means that the device is not ready to jump to DFU mode yet.
+      //
+      // Here is an example using a variable to delay resetting the device:
+//      if (!m_ready_for_reset)
+//      {
+//        return false;
+//      }
+      break;
+
+    default:
+      // Implement any of the other events available from the power management module:
+      //      -NRF_PWR_MGMT_EVT_PREPARE_SYSOFF
+      //      -NRF_PWR_MGMT_EVT_PREPARE_WAKEUP
+      //      -NRF_PWR_MGMT_EVT_PREPARE_RESET
+      return true;
+  }
+  NRF_LOG_INFO("Power management allowed to reset to DFU mode\r\n");
+  return true;
+}
+
+NRF_PWR_MGMT_HANDLER_REGISTER(app_shutdown_handler, 0);
 
 static void button_action_handler(button_state_t state)
 {
+  static uint8_t calibration_mode = 0;
+  ph_calibration_t calibration[] = {PH_LOW_CALIBRATION, PH_MID_CALIBRATION, PH_HI_CALIBRATION};
+
   switch (state)
   {
-    case LONGPRESSED:
-      NRF_LOG_INFO("BTN LONGPRESSED, Delete bounds");
+    case RELEASED:
+      if (get_ph_calibration_status())
+      {
+        NRF_LOG_INFO("BTN SHORT PRESS, switch calibration_mode %u", calibration_mode);
+        do_ph_calibration(calibration[calibration_mode++]);
+
+        if (calibration_mode == 3)
+          calibration_mode = 0;
+      } else {
+        NRF_LOG_INFO("BTN SHORT PRESS, start sensors");
+
+        /* Start read sensor timer */
+        read_sensor_timer_stop();
+        read_sensor_timer_start(true);
+      }
+      break;
+    case LONG_PRESSED:
+      NRF_LOG_INFO("BTN LONG PRESS, is_calibrating? %u", get_ph_calibration_status());
+      if (!get_ph_calibration_status())
+      {
+        calibration_mode = 0;
+        NRF_LOG_INFO("start calibration_mode %u", calibration_mode);
+        do_ph_calibration(calibration[calibration_mode++]);
+      }
       break;
 
     default:
@@ -202,6 +228,9 @@ int main(void)
   /* Welcome Message */
   NRF_LOG_INFO("Start PhSensor App");
 
+  /* Init Storage */
+  storage_init();
+
   /* Init Button */
   button_init();
   set_button_action_handler(button_action_handler);
@@ -211,9 +240,6 @@ int main(void)
 
   /* Init BLE services */
   init_ble();
-
-  /* Start Advertising update timer */
-  advertising_update_timer_start();
 
   // Enable FPU interrupt
   NVIC_SetPriority(FPU_IRQn, APP_IRQ_PRIORITY_LOWEST);

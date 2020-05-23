@@ -2,16 +2,19 @@
 #include <stdint.h>
 #include <string.h>
 #include <ble/ble_services/ble_lbs/ble_lbs.h>
-#include <libraries/timer/app_timer.h>
 #include <nrfx_saadc.h>
 #include <sensors/include/ntc_temperature_sensor.h>
 #include <sensors/include/ph_sensor.h>
+#include <ble_dfu.h>
+#include <nrf_power.h>
+#include <libraries/bootloader/nrf_bootloader_info.h>
 
 #include "nordic_common.h"
 #include "nrf.h"
 #include "app_error.h"
 #include "ble_services.h"
 #include "ble_hci.h"
+#include "nrf_ble_gq.h"
 #include "ble_srv_common.h"
 #include "ble_advdata.h"
 #include "ble_advertising.h"
@@ -24,10 +27,11 @@
 #include "peer_manager_handler.h"
 #include "ble_conn_state.h"
 #include "nrf_ble_gatt.h"
+#include "nrf_ble_lesc.h"
 #include "nrf_ble_qwr.h"
 #include "nrf_pwr_mgmt.h"
 #include "ble_bas.h"
-
+#include "app_timer.h"
 #include "nrf_log.h"
 #include "nrf_log_ctrl.h"
 #include "nrf_log_default_backends.h"
@@ -49,8 +53,8 @@
 #define APP_BLE_OBSERVER_PRIO           3                                       /**< Application's BLE observer priority. You shouldn't need to modify this value. */
 #define APP_BLE_CONN_CFG_TAG            1                                       /**< A tag identifying the SoftDevice BLE configuration. */
 
-#define MIN_CONN_INTERVAL               MSEC_TO_UNITS(100, UNIT_1_25_MS)        /**< Minimum acceptable connection interval (0.1 seconds). */
-#define MAX_CONN_INTERVAL               MSEC_TO_UNITS(200, UNIT_1_25_MS)        /**< Maximum acceptable connection interval (0.2 second). */
+#define MIN_CONN_INTERVAL               MSEC_TO_UNITS(600, UNIT_1_25_MS)        /**< Minimum acceptable connection interval (0.1 seconds). */
+#define MAX_CONN_INTERVAL               MSEC_TO_UNITS(1280, UNIT_1_25_MS)       /**< Maximum acceptable connection interval (0.2 second). */
 #define SLAVE_LATENCY                   0                                       /**< Slave latency. */
 #define CONN_SUP_TIMEOUT                MSEC_TO_UNITS(4000, UNIT_10_MS)         /**< Connection supervisory timeout (4 seconds). */
 
@@ -58,9 +62,11 @@
 #define NEXT_CONN_PARAMS_UPDATE_DELAY   APP_TIMER_TICKS(30000)                  /**< Time between each call to sd_ble_gap_conn_param_update after the first call (30 seconds). */
 #define MAX_CONN_PARAMS_UPDATE_COUNT    3                                       /**< Number of attempts before giving up the connection parameter negotiation. */
 
+#define LESC_DEBUG_MODE                     0                                       /**< Set to 1 to use LESC debug keys, allows you to use a sniffer to inspect traffic. */
+
 #define SEC_PARAM_BOND                  1                                       /**< Perform bonding. */
 #define SEC_PARAM_MITM                  0                                       /**< Man In The Middle protection not required. */
-#define SEC_PARAM_LESC                  0                                       /**< LE Secure Connections not enabled. */
+#define SEC_PARAM_LESC                  1                                       /**< LE Secure Connections not enabled. */
 #define SEC_PARAM_KEYPRESS              0                                       /**< Keypress notifications not enabled. */
 #define SEC_PARAM_IO_CAPABILITIES       BLE_GAP_IO_CAPS_NONE                    /**< No I/O capabilities. */
 #define SEC_PARAM_OOB                   0                                       /**< Out Of Band data not available. */
@@ -95,7 +101,7 @@ typedef union {
   uint8_t  u8[2];
 } u16_to_u8_t;
 
-static uint8_t manuf_data_array[5];
+static uint8_t manuf_data_array[7];
 
 static uint16_t m_conn_handle = BLE_CONN_HANDLE_INVALID;                        /**< Handle of the current connection. */
 
@@ -106,7 +112,7 @@ static ble_uuid_t m_adv_uuids[] =                                               
 //  {BLE_UUID_BATTERY_SERVICE, BLE_UUID_TYPE_VENDOR_BEGIN},
 };
 
-
+static pm_peer_id_t m_peer_to_be_deleted = PM_PEER_ID_INVALID;
 
 /* Callback function for asserts in the SoftDevice. */
 void assert_nrf_callback(uint16_t line_num, const uint8_t * p_file_name)
@@ -114,15 +120,140 @@ void assert_nrf_callback(uint16_t line_num, const uint8_t * p_file_name)
   app_error_handler(DEAD_BEEF, line_num, p_file_name);
 }
 
+static void buttonless_dfu_sdh_state_observer(nrf_sdh_state_evt_t state, void * p_context)
+{
+  if (state == NRF_SDH_EVT_STATE_DISABLED)
+  {
+    // Softdevice was disabled before going into reset. Inform bootloader to skip CRC on next boot.
+    nrf_power_gpregret2_set(BOOTLOADER_DFU_SKIP_CRC);
+
+    //Go to system off.
+    nrf_pwr_mgmt_shutdown(NRF_PWR_MGMT_SHUTDOWN_GOTO_SYSOFF);
+  }
+}
+
+/* nrf_sdh state observer. */
+NRF_SDH_STATE_OBSERVER(m_buttonless_dfu_state_obs, 0) =
+    {
+        .handler = buttonless_dfu_sdh_state_observer,
+    };
+
+static void advertising_config_get(ble_adv_modes_config_t * p_config)
+{
+  memset(p_config, 0, sizeof(ble_adv_modes_config_t));
+
+  p_config->ble_adv_fast_enabled  = true;
+  p_config->ble_adv_fast_interval = APP_ADV_INTERVAL;
+  p_config->ble_adv_fast_timeout  = APP_ADV_DURATION;
+}
+
+
+static void disconnect(uint16_t conn_handle, void * p_context)
+{
+  UNUSED_PARAMETER(p_context);
+
+  ret_code_t err_code = sd_ble_gap_disconnect(conn_handle, BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
+  if (err_code != NRF_SUCCESS)
+  {
+    NRF_LOG_WARNING("Failed to disconnect connection. Connection handle: %d Error: %d", conn_handle, err_code);
+  }
+  else
+  {
+    NRF_LOG_DEBUG("Disconnected connection handle %d", conn_handle);
+  }
+}
+
+
+/* DFU event handler */
+static void ble_dfu_buttonless_evt_handler(ble_dfu_buttonless_evt_type_t event)
+{
+  switch (event)
+  {
+    case BLE_DFU_EVT_BOOTLOADER_ENTER_PREPARE:
+    {
+      NRF_LOG_INFO("Device is preparing to enter bootloader mode.");
+
+      // Prevent device from advertising on disconnect.
+      ble_adv_modes_config_t config;
+      advertising_config_get(&config);
+      config.ble_adv_on_disconnect_disabled = true;
+      ble_advertising_modes_config_set(&m_advertising, &config);
+
+      // Disconnect all other bonded devices that currently are connected.
+      // This is required to receive a service changed indication
+      // on bootup after a successful (or aborted) Device Firmware Update.
+      uint32_t conn_count = ble_conn_state_for_each_connected(disconnect, NULL);
+      NRF_LOG_INFO("Disconnected %d links.", conn_count);
+      break;
+    }
+
+    case BLE_DFU_EVT_BOOTLOADER_ENTER:
+      // YOUR_JOB: Write app-specific unwritten data to FLASH, control finalization of this
+      //           by delaying reset by reporting false in app_shutdown_handler
+      NRF_LOG_INFO("Device will enter bootloader mode.");
+      break;
+
+    case BLE_DFU_EVT_BOOTLOADER_ENTER_FAILED:
+      NRF_LOG_ERROR("Request to enter bootloader mode failed asynchroneously.");
+      // YOUR_JOB: Take corrective measures to resolve the issue
+      //           like calling APP_ERROR_CHECK to reset the device.
+      break;
+
+    case BLE_DFU_EVT_RESPONSE_SEND_ERROR:
+      NRF_LOG_ERROR("Request to send a response to client failed.");
+      // YOUR_JOB: Take corrective measures to resolve the issue
+      //           like calling APP_ERROR_CHECK to reset the device.
+      APP_ERROR_CHECK(false);
+      break;
+
+    default:
+      NRF_LOG_ERROR("Unknown event from ble_dfu_buttonless.");
+      break;
+  }
+}
 
 /* Function for handling Peer Manager events. */
 void pm_evt_handler(pm_evt_t const * p_evt)
 {
   pm_handler_on_pm_evt(p_evt);
+  pm_handler_disconnect_on_sec_failure(p_evt);
   pm_handler_flash_clean(p_evt);
+
+  ret_code_t     err_code;
 
   switch (p_evt->evt_id)
   {
+    case PM_EVT_CONN_SEC_SUCCEEDED:
+    {
+      pm_conn_sec_status_t conn_sec_status;
+
+      // Check if the link is authenticated (meaning at least MITM).
+      err_code = pm_conn_sec_status_get(p_evt->conn_handle, &conn_sec_status);
+      APP_ERROR_CHECK(err_code);
+
+      if (conn_sec_status.mitm_protected)
+      {
+        NRF_LOG_INFO("Link secured. Role: %d. conn_handle: %d, Procedure: %d",
+                     ble_conn_state_role(p_evt->conn_handle),
+                     p_evt->conn_handle,
+                     p_evt->params.conn_sec_succeeded.procedure);
+      }
+      else
+      {
+        // The peer did not use MITM, disconnect.
+        NRF_LOG_INFO("Collector did not use MITM, disconnecting");
+        err_code = pm_peer_id_get(m_conn_handle, &m_peer_to_be_deleted);
+        APP_ERROR_CHECK(err_code);
+        err_code = sd_ble_gap_disconnect(m_conn_handle,
+                                         BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
+        APP_ERROR_CHECK(err_code);
+      }
+    } break;
+
+    case PM_EVT_CONN_SEC_FAILED:
+      m_conn_handle = BLE_CONN_HANDLE_INVALID;
+      break;
+
     case PM_EVT_PEERS_DELETE_SUCCEEDED:
       advertising_start();
       break;
@@ -242,11 +373,19 @@ static void on_cus_evt(ble_cus_t * p_bas, ble_cus_evt_t * p_evt)
       update_sensor_characteristic_start(PH_SENSOR);
       break;
 
+    case BLE_CUS_EVT_PH_RAW_NOTIFICATION_ENABLED:
+      update_sensor_characteristic_start(PH_SENSOR);
+      break;
+
     case BLE_CUS_EVT_TEMPERATURE_NOTIFICATION_DISABLED:
       update_sensor_characteristic_stop(TEMPERATURE_SENSOR);
       break;
 
     case BLE_CUS_EVT_PH_NOTIFICATION_DISABLED:
+      update_sensor_characteristic_stop(PH_SENSOR);
+      break;
+
+    case BLE_CUS_EVT_PH_RAW_NOTIFICATION_DISABLED:
       update_sensor_characteristic_stop(PH_SENSOR);
       break;
 
@@ -256,10 +395,6 @@ static void on_cus_evt(ble_cus_t * p_bas, ble_cus_evt_t * p_evt)
 
     case BLE_CUS_EVT_DISCONNECTED:
       break;
-//    case BLE_CUS_EVT_SERVO:
-//      err_code = app_pwm_channel_duty_set(&PWM1, 0, p_evt->duty_cycle);
-//      APP_ERROR_CHECK(err_code);
-//      break;
 
     default:
       // No implementation needed.
@@ -275,6 +410,7 @@ void services_init(void)
   ret_code_t         err_code;
   nrf_ble_qwr_init_t qwr_init = {0};
   ble_cus_init_t     cus_init = {0};
+  ble_dfu_buttonless_init_t dfus_init = {0};
 
   // Initialize Queued Write Module.
   qwr_init.error_handler = nrf_qwr_error_handler;
@@ -285,7 +421,7 @@ void services_init(void)
   // Initialize CUS Service init structure to zero.
   cus_init.evt_handler                = on_cus_evt;
 
-  /* ToDo: Add Encription */
+  /* ToDo: Add Encryption */
   /* Status */
   BLE_GAP_CONN_SEC_MODE_SET_OPEN(&cus_init.status_char_attr_md.cccd_write_perm);
   BLE_GAP_CONN_SEC_MODE_SET_OPEN(&cus_init.status_char_attr_md.read_perm);
@@ -304,10 +440,21 @@ void services_init(void)
   BLE_GAP_CONN_SEC_MODE_SET_OPEN(&cus_init.ph_char_attr_md.write_perm);
   cus_init.initial_ph_value = 7;
 
+  /* PH RAW */
+  BLE_GAP_CONN_SEC_MODE_SET_OPEN(&cus_init.ph_raw_char_attr_md.cccd_write_perm);
+  BLE_GAP_CONN_SEC_MODE_SET_OPEN(&cus_init.ph_raw_char_attr_md.read_perm);
+  BLE_GAP_CONN_SEC_MODE_SET_OPEN(&cus_init.ph_raw_char_attr_md.write_perm);
+  cus_init.initial_ph_raw_value = 0;
+
   err_code = ble_cus_service_init(&ble_cus, &cus_init);
   APP_ERROR_CHECK(err_code);
 
   bas_init();
+
+  /* DFU Init */
+  dfus_init.evt_handler = ble_dfu_buttonless_evt_handler;
+  err_code = ble_dfu_buttonless_init(&dfus_init);
+  APP_ERROR_CHECK(err_code);
 }
 
 
@@ -442,6 +589,27 @@ void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
       APP_ERROR_CHECK(err_code);
       break;
 
+    case BLE_GAP_EVT_SEC_PARAMS_REQUEST:
+      NRF_LOG_DEBUG("BLE_GAP_EVT_SEC_PARAMS_REQUEST");
+      break;
+
+    case BLE_GAP_EVT_AUTH_KEY_REQUEST:
+      NRF_LOG_INFO("BLE_GAP_EVT_AUTH_KEY_REQUEST");
+      break;
+
+    case BLE_GAP_EVT_LESC_DHKEY_REQUEST:
+      NRF_LOG_INFO("BLE_GAP_EVT_LESC_DHKEY_REQUEST");
+      break;
+
+    case BLE_GAP_EVT_AUTH_STATUS:
+      NRF_LOG_INFO("BLE_GAP_EVT_AUTH_STATUS: status=0x%x bond=0x%x lv4: %d kdist_own:0x%x kdist_peer:0x%x",
+                   p_ble_evt->evt.gap_evt.params.auth_status.auth_status,
+                   p_ble_evt->evt.gap_evt.params.auth_status.bonded,
+                   p_ble_evt->evt.gap_evt.params.auth_status.sm1_levels.lv4,
+                   *((uint8_t *)&p_ble_evt->evt.gap_evt.params.auth_status.kdist_own),
+                   *((uint8_t *)&p_ble_evt->evt.gap_evt.params.auth_status.kdist_peer));
+      break;
+
     default:
       // No implementation needed.
       break;
@@ -519,45 +687,6 @@ void delete_bonds(void)
 }
 
 
-///**@brief Function for handling events from the BSP module.
-// *
-// * @param[in]   event   Event generated when button is pressed.
-// */
-//void bsp_event_handler(bsp_event_t event)
-//{
-//  ret_code_t err_code;
-//
-//  switch (event)
-//  {
-//    case BSP_EVENT_SLEEP:
-////      sleep_mode_enter();
-//      break; // BSP_EVENT_SLEEP
-//
-//    case BSP_EVENT_DISCONNECT:
-//      err_code = sd_ble_gap_disconnect(m_conn_handle,
-//                                       BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
-//      if (err_code != NRF_ERROR_INVALID_STATE)
-//      {
-//        APP_ERROR_CHECK(err_code);
-//      }
-//      break; // BSP_EVENT_DISCONNECT
-//
-//    case BSP_EVENT_WHITELIST_OFF:
-//      if (m_conn_handle == BLE_CONN_HANDLE_INVALID)
-//      {
-//        err_code = ble_advertising_restart_without_whitelist(&m_advertising);
-//        if (err_code != NRF_ERROR_INVALID_STATE)
-//        {
-//          APP_ERROR_CHECK(err_code);
-//        }
-//      }
-//      break; // BSP_EVENT_KEY_0
-//
-//    default:
-//      break;
-//  }
-//}
-
 /* Advertising  data format */
 
 /* Function for initializing the Advertising functionality. */
@@ -573,11 +702,11 @@ void advertising_init(void)
   /* Our data to advertise */
 
   /* Data Format
-   * bat_%(8bit) ->
-   * temp_x100(16bit) ->
-   * ph_x100(16bit) ->
-   * soil(16bit) ->
-   * ec(16bit) = 9 byte */
+   * bat_%      (8bit) ->
+   * temp_x100 (16bit) ->
+   * ph_x100   (16bit) ->
+   * ph_raw    (16bit) ->
+   * */
 
   u16_to_u8_t temperature;
   temperature.u16                     = (uint16_t ) (get_ntc_temperature()*100);
@@ -585,10 +714,14 @@ void advertising_init(void)
   u16_to_u8_t ph;
   ph.u16                              = (uint16_t ) (get_ph_value()*100);
 
+  u16_to_u8_t ph_raw;
+  ph_raw.u16                          = (uint16_t ) (get_ph_raw_value());
+
   NRF_LOG_INFO("Temp x100 %d", temperature.u16 );
   NRF_LOG_INFO("PH   x100 %d", ph.u16);
+  NRF_LOG_INFO("PH   RAW  %d", ph_raw.u16);
 
-  uint8_t data[5];
+  uint8_t data[7];
 
   /* bat */
   data[0]                             = get_battery_capacity();
@@ -601,6 +734,10 @@ void advertising_init(void)
   data[3]                             = ph.u8[0];
   data[4]                             = ph.u8[1];
 
+  /* ph raw */
+  data[5]                             = ph_raw.u8[0];
+  data[6]                             = ph_raw.u8[1];
+
   manuf_data.company_identifier       = 0xffff; //You company ID
   manuf_data.data.p_data              = data;
   manuf_data.data.size                = sizeof(data);
@@ -609,9 +746,6 @@ void advertising_init(void)
   init.advdata.name_type              = BLE_ADVDATA_FULL_NAME;
   init.advdata.include_appearance     = true;
   init.advdata.flags                  = BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE;
-
-//  init.advdata.uuids_complete.uuid_cnt = sizeof(m_adv_uuids) / sizeof(m_adv_uuids[0]);
-//  init.advdata.uuids_complete.p_uuids  = m_adv_uuids;
 
   init.srdata.uuids_complete.uuid_cnt = sizeof(m_adv_uuids) / sizeof(m_adv_uuids[0]);
   init.srdata.uuids_complete.p_uuids  = m_adv_uuids;
@@ -642,6 +776,9 @@ void adv_manuf_data_update()
   u16_to_u8_t ph;
   ph.u16                              = (uint16_t ) (get_ph_value()*100);
 
+  u16_to_u8_t ph_raw;
+  ph_raw.u16                          = (uint16_t ) (get_ph_raw_value());
+
 
   /* bat */
   manuf_data_array[0] = get_battery_capacity();
@@ -654,6 +791,10 @@ void adv_manuf_data_update()
   manuf_data_array[3] = ph.u8[0];
   manuf_data_array[4] = ph.u8[1];
 
+  /* ph raw */
+  manuf_data_array[5] = ph_raw.u8[0];
+  manuf_data_array[6] = ph_raw.u8[1];
+
 }
 
 /* Function to change Advertising data */
@@ -661,39 +802,28 @@ void advertising_update()
 {
   ret_code_t ret_code;
 
-  static bool buffer_index; // We alternate between two data buffer in order to hot-swap
-  static ble_gap_adv_data_t new_data;
-  ble_gap_adv_data_t *old_data  = &m_advertising.adv_data;
+  static ble_advdata_t new_srdata;
 
-  // Copy advertising data
-  static uint8_t data[2][BLE_GAP_ADV_SET_DATA_SIZE_MAX];
-  new_data.adv_data.p_data      = data[buffer_index];
-  new_data.adv_data.len         = old_data->adv_data.len;
-  memcpy(new_data.adv_data.p_data, old_data->adv_data.p_data, old_data->adv_data.len);
-
-  // Copy scan response data
-  static uint8_t scan_data[2][BLE_GAP_ADV_SET_DATA_SIZE_MAX];
-  new_data.scan_rsp_data.p_data = scan_data[buffer_index];
-  new_data.scan_rsp_data.len    = old_data->scan_rsp_data.len;
-  memcpy(new_data.scan_rsp_data.p_data,
-         old_data->scan_rsp_data.p_data,
-         old_data->scan_rsp_data.len);
-
-//  for (int i = 0; i < BLE_GAP_ADV_SET_DATA_SIZE_MAX; ++i) {
-//    NRF_LOG_INFO("%x", new_data.scan_rsp_data.p_data[i]);
-//  }
-
-  // Update manufacturer specific data
-  const uint8_t manuf_data_offset = 22;
+  /* Update "manuf_data_array" */
   adv_manuf_data_update();
-  memcpy(&new_data.scan_rsp_data.p_data[manuf_data_offset],
-         &manuf_data_array,
-         sizeof(manuf_data_array));
 
-  ret_code = ble_advertising_advdata_update(&m_advertising, &new_data, true);
+  /* Update manufacturer specific data */
+  /* new sensors values */
+  ble_advdata_manuf_data_t manuf_data;
+
+  manuf_data.company_identifier       = 0xffff; //You company ID
+  manuf_data.data.p_data              = manuf_data_array;
+  manuf_data.data.size                = sizeof(manuf_data_array);
+  new_srdata.p_manuf_specific_data    = &manuf_data;
+
+  /* UUIDs */
+  new_srdata.uuids_complete.uuid_cnt = sizeof(m_adv_uuids) / sizeof(m_adv_uuids[0]);
+  new_srdata.uuids_complete.p_uuids  = m_adv_uuids;
+
+  ret_code = ble_advertising_advdata_update(&m_advertising, NULL, &new_srdata);
   APP_ERROR_CHECK(ret_code);
 
-  buffer_index = !buffer_index;
+  led_indication_set(LED_INDICATE_ADVERTISING_SLOW);
 }
 
 /* Function for starting advertising. */
@@ -711,9 +841,11 @@ void update_sensors_service(sensor_t sensor_id)
   uint8_t battery_level = get_battery_capacity();
   uint16_t temperature  = (uint16_t ) (get_ntc_temperature()*100);
   uint16_t ph           = (uint16_t ) (get_ph_value()*100);
+  uint16_t ph_raw       = (uint16_t ) (get_ph_raw_value());
 
   NRF_LOG_INFO("Temp x100 %d", temperature);
   NRF_LOG_INFO("PH   x100 %d", ph);
+  NRF_LOG_INFO("PH   RAW  %d", ph_raw);
 
 
   switch (sensor_id)
@@ -729,6 +861,9 @@ void update_sensors_service(sensor_t sensor_id)
 
     case PH_SENSOR:
       err_code = ble_cus_ph_update(&ble_cus, ph);
+      APP_ERROR_CHECK(err_code);
+
+      err_code = ble_cus_ph_raw_update(&ble_cus, ph_raw);
       APP_ERROR_CHECK(err_code);
       break;
 

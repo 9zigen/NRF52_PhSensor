@@ -6,7 +6,7 @@
 #define PHSENSOR_BUTTON_H
 
 typedef enum {
-  IDLE, PRESSED, RELEASED, LONGPRESSED,
+  IDLE, PRESSED, RELEASED, LONG_PRESSED, LONG_LONG_PRESSED
 } button_state_t;
 
 typedef void (*button_action_t)(button_state_t state);

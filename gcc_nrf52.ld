@@ -146,4 +146,4 @@ SECTIONS
 
 } INSERT AFTER .text
 
-INCLUDE "/Users/aleksej/dev/SDK/nRF5_SDK_16.0.0/modules/nrfx/mdk/nrf_common.ld"
+INCLUDE "../../../../SDK/nRF5_SDK_16.0.0/modules/nrfx/mdk/nrf_common.ld"

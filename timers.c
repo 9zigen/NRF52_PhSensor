@@ -8,14 +8,13 @@
 
 #include "sensors.h"
 
-#define SENSOR_READ_INTERVAL_FAST           APP_TIMER_TICKS(5000)             /* 1 sec */
-#define SENSOR_READ_INTERVAL                APP_TIMER_TICKS(30*1000)          /* 30 min */
-#define CH_UPDATE_INTERVAL                  APP_TIMER_TICKS(10*1000)          /* 10 sec */
+#define SENSOR_READ_INTERVAL_FAST           APP_TIMER_TICKS(10000)            /* 10 sec */
+#define SENSOR_READ_INTERVAL                APP_TIMER_TICKS(30*1000*60)       /* 30 min */
+#define CH_UPDATE_INTERVAL                  APP_TIMER_TICKS(60*1000)          /* 60 sec */
 #define ADV_UPDATE_INTERVAL                 APP_TIMER_TICKS(60*1000)          /* 1 min */
 
 APP_TIMER_DEF(m_read_sensors_timer_id);
 APP_TIMER_DEF(m_update_char_timer_id);
-APP_TIMER_DEF(m_update_adv_timer_id);
 
 /* Function for the Timer initialization. */
 void timers_init()
@@ -26,25 +25,12 @@ void timers_init()
   err_code = app_timer_init();
   APP_ERROR_CHECK(err_code);
 
-  /* Create update ADV Sensor timer */
-  err_code = app_timer_create(&m_update_adv_timer_id, APP_TIMER_MODE_REPEATED, update_advertising_timer_handler);
-  APP_ERROR_CHECK(err_code);
-
   /* Create slow read sensors timer. */
   err_code = app_timer_create(&m_read_sensors_timer_id, APP_TIMER_MODE_REPEATED, read_sensors_timer_handler);
   APP_ERROR_CHECK(err_code);
 
   /* Create update Sensor characteristics timer */
   err_code = app_timer_create(&m_update_char_timer_id, APP_TIMER_MODE_REPEATED, update_characteristics_timer_handler);
-  APP_ERROR_CHECK(err_code);
-
-
-}
-
-/* Advertising update timer start */
-void advertising_update_timer_start() {
-  ret_code_t err_code;
-  err_code = app_timer_start(m_update_adv_timer_id, ADV_UPDATE_INTERVAL, NULL);
   APP_ERROR_CHECK(err_code);
 }
 

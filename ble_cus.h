@@ -33,14 +33,17 @@ NRF_SDH_BLE_OBSERVER(_name ## _obs,                                             
 #define SOIL_CHAR_UUID                    0x1405
 #define LIGHT_CHAR_UUID                   0x1406
 #define PH_CHAR_UUID                      0x1407
+#define PH_RAW_CHAR_UUID                  0x1408
 																					
 /* Custom Service event type. */
 typedef enum
 {
   BLE_CUS_EVT_TEMPERATURE_NOTIFICATION_ENABLED,            /**< Temperature value notification enabled event. */
   BLE_CUS_EVT_TEMPERATURE_NOTIFICATION_DISABLED,           /**< Temperature value notification disabled event. */
-  BLE_CUS_EVT_PH_NOTIFICATION_ENABLED,                     /**< Humidity value notification enabled event. */
-  BLE_CUS_EVT_PH_NOTIFICATION_DISABLED,                    /**< Humidity value notification disabled event. */
+  BLE_CUS_EVT_PH_NOTIFICATION_ENABLED,                     /**< PH value notification enabled event. */
+  BLE_CUS_EVT_PH_NOTIFICATION_DISABLED,                    /**< PH value notification disabled event. */
+  BLE_CUS_EVT_PH_RAW_NOTIFICATION_ENABLED,                     /**< PH value notification enabled event. */
+  BLE_CUS_EVT_PH_RAW_NOTIFICATION_DISABLED,                    /**< PH value notification disabled event. */
   BLE_CUS_EVT_DISCONNECTED,
   BLE_CUS_EVT_CONNECTED,
   BLE_CUS_EVT_CALIBRATE_PH_LOW,
@@ -68,13 +71,12 @@ typedef struct
   ble_cus_evt_handler_t         evt_handler;                    /**< Event handler to be called for handling events in the Custom Service. */
   uint8_t                       initial_status_value;           /**< Initial Temperature value */
   uint16_t                      initial_temperature_value;      /**< Initial Temperature value */
-  uint16_t                      initial_ph_value;               /**< Initial Humidity value */
+  uint16_t                      initial_ph_value;               /**< Initial PH value */
+  uint16_t                      initial_ph_raw_value;           /**< Initial RAW PH value */
   ble_srv_cccd_security_mode_t  status_char_attr_md;            /**< Initial security level for Custom characteristics attribute */
   ble_srv_cccd_security_mode_t  temperature_char_attr_md;       /**< Initial security level for Custom characteristics attribute */
-  ble_srv_cccd_security_mode_t  ph_char_attr_md;          /**< Initial security level for Custom characteristics attribute */
-  ble_srv_cccd_security_mode_t  salinity_char_attr_md;          /**< Initial security level for Custom characteristics attribute */
-  ble_srv_cccd_security_mode_t  soil_char_attr_md;              /**< Initial security level for Custom characteristics attribute */
-  ble_srv_cccd_security_mode_t  light_char_attr_md;             /**< Initial security level for Custom characteristics attribute */
+  ble_srv_cccd_security_mode_t  ph_char_attr_md;                /**< Initial security level for Custom characteristics attribute */
+  ble_srv_cccd_security_mode_t  ph_raw_char_attr_md;            /**< Initial security level for Custom characteristics attribute */
 
 } ble_cus_init_t;
 
@@ -85,10 +87,8 @@ struct ble_cus_s
   uint16_t                      service_handle;             /**< Handle of Custom Service (as provided by the BLE stack). */
   ble_gatts_char_handles_t      status_handles;             /**< Handles related to the Status Value characteristic. */
   ble_gatts_char_handles_t      temperature_handles;        /**< Handles related to the Temperature Value characteristic. */
-  ble_gatts_char_handles_t      ph_handles;           /**< Handles related to the Humidity Value characteristic. */
-  ble_gatts_char_handles_t      salinity_handles;           /**< Handles related to the Salinity Value characteristic. */
-  ble_gatts_char_handles_t      soil_handles;               /**< Handles related to the Soil Value characteristic. */
-  ble_gatts_char_handles_t      light_handles;              /**< Handles related to the Light Value characteristic. */
+  ble_gatts_char_handles_t      ph_handles;                 /**< Handles related to the PH Value characteristic. */
+  ble_gatts_char_handles_t      ph_raw_handles;             /**< Handles related to the RAW PH Value characteristic. */
   uint16_t                      conn_handle;                /**< Handle of the current connection (as provided by the BLE stack, is BLE_CONN_HANDLE_INVALID if not in a connection). */
   uint8_t                       uuid_type;
 };
@@ -130,5 +130,6 @@ void ble_cus_on_ble_evt( ble_evt_t const * p_ble_evt, void * p_context);
 
 uint32_t ble_cus_temperature_update(ble_cus_t *p_cus, uint16_t new_value);
 uint32_t ble_cus_ph_update(ble_cus_t *p_cus, uint16_t new_value);
+uint32_t ble_cus_ph_raw_update(ble_cus_t *p_cus, uint16_t new_value);
 
 #endif // BLE_CUS_H__
