@@ -1,4 +1,7 @@
 cmake-build-debug/*.*
+_build/*.*
+DFU/bootloader/_build/*.*
+.idea/*.*
 CMakeCache.txt
 CMakeFiles
 CMakeScripts
